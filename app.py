@@ -1,3 +1,4 @@
+import datetime
 import re
 import pandas as pd
 import plotly.graph_objects as go
@@ -5,16 +6,15 @@ import streamlit as st
 import yfinance as yf
 
 # ------------------------------------------------------------------
-# 0. 頁面基本設定與自訂 CSS 美化 (完美支援深色/淺色背景)
+# 0. 頁面基本設定與自訂 CSS 美化
 # ------------------------------------------------------------------
 st.set_page_config(
-    page_title="台美選股器 (EY版)",
-    page_icon="⚡",
-    layout="wide"
+    page_title="台美選股器 (EY版)", page_icon="⚡", layout="wide"
 )
 
-st.markdown("""
-<style>
+st.markdown(
+    """
+    <style>
     /* 調整主標題樣式 */
     h1 {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -22,25 +22,25 @@ st.markdown("""
         letter-spacing: -0.5px;
     }
     
-    /* 側邊欄背景與文字顏色自動適應深色/淺色模式 */
+    /* 側邊欄邊框微調 */
     [data-testid="stSidebar"] {
-        background-color: var(--background-color);
-        border-right: 1px solid var(--secondary-background-color);
+        border-right: 1px solid rgba(128, 128, 128, 0.2);
     }
-    
+
     /* 調整資料表格的字型與排版 */
     [data-testid="stDataFrame"] {
         border-radius: 8px;
         box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     }
-</style>
-""", unsafe_allow_html=True)
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 # ------------------------------------------------------------------
 # 1. 預設股票母體與中文名稱字典
 # ------------------------------------------------------------------
 TW_STOCK_LIST = [
-    # 0050 成分股 (50檔)
     ("2330.TW", "台積電", "半導體/科技"),
     ("2317.TW", "鴻海", "電子零組件/電腦週邊"),
     ("2454.TW", "聯發科", "半導體/科技"),
@@ -91,8 +91,6 @@ TW_STOCK_LIST = [
     ("2356.TW", "英業達", "電子零組件/電腦週邊"),
     ("3711.TW", "日月光投控", "半導體/科技"),
     ("5871.TW", "中租-KY", "金融保險"),
-    
-    # 0051 中型成分股 (100檔)
     ("1477.TW", "聚陽", "非必需消費/其他"),
     ("2385.TW", "群光", "電子零組件/電腦週邊"),
     ("9938.TW", "百和", "非必需消費/其他"),
@@ -196,87 +194,223 @@ TW_STOCK_LIST = [
 ]
 
 NASDAQ100_LIST = [
-    ("AAPL", "Apple", "半導體/科技"), ("MSFT", "Microsoft", "半導體/科技"), ("NVDA", "NVIDIA", "半導體/科技"),
-    ("AMZN", "Amazon", "非必需消費/其他"), ("GOOG", "Alphabet C", "半導體/科技"), ("GOOGL", "Alphabet A", "半導體/科技"),
-    ("META", "Meta", "半導體/科技"), ("TSLA", "Tesla", "非必需消費/其他"), ("AVGO", "Broadcom", "半導體/科技"),
-    ("COST", "Costco", "非必需消費/其他"), ("PEP", "PepsiCo", "非必需消費/其他"), ("CSCO", "Cisco", "半導體/科技"),
-    ("TMUS", "T-Mobile", "半導體/科技"), ("ADBE", "Adobe", "半導體/科技"), ("AMD", "AMD", "半導體/科技"),
-    ("NFLX", "Netflix", "非必需消費/其他"), ("TXN", "Texas Instruments", "半導體/科技"), ("QCOM", "Qualcomm", "半導體/科技"),
-    ("INTC", "Intel", "半導體/科技"), ("AMAT", "Applied Materials", "半導體/科技"), ("CMCSA", "Comcast", "非必需消費/其他"),
-    ("HON", "Honeywell", "航運物流/工業"), ("INTU", "Intuit", "半導體/科技"), ("BKNG", "Booking Holdings", "非必需消費/其他"),
-    ("AMGN", "Amgen", "非必需消費/其他"), ("SBUX", "Starbucks", "非必需消費/其他"), ("GILD", "Gilead Sciences", "非必需消費/其他"),
-    ("MDLZ", "Mondelez", "非必需消費/其他"), ("ADI", "Analog Devices", "半導體/科技"), ("ADP", "ADP", "半導體/科技"),
-    ("LRCX", "Lam Research", "半導體/科技"), ("ISRG", "Intuitive Surgical", "非必需消費/其他"), ("REGN", "Regeneron", "非必需消費/其他"),
-    ("VRTX", "Vertex", "半導體/科技"), ("FISV", "Fiserv", "半導體/科技"), ("MU", "Micron", "半導體/科技"),
-    ("KLAC", "KLA Corporation", "半導體/科技"), ("PANW", "Palo Alto Networks", "半導體/科技"), ("SNPS", "Synopsys", "半導體/科技"),
-    ("CDNS", "Cadence", "半導體/科技"), ("MELI", "MercadoLibre", "非必需消費/其他"), ("PYPL", "PayPal", "金融保險"),
-    ("CSX", "CSX Corporation", "航運物流/工業"), ("MAR", "Marriott", "非必需消費/其他"), ("ORLY", "O'Reilly Auto Parts", "非必需消費/其他"),
-    ("ASML", "ASML Holding", "半導體/科技"), ("CTAS", "Cintas", "航運物流/工業"), ("NXPI", "NXP Semiconductors", "半導體/科技"),
-    ("FTNT", "Fortinet", "半導體/科技"), ("MRVL", "Marvell Technology", "半導體/科技"), ("ADSK", "Autodesk", "半導體/科技"),
-    ("ABNB", "Airbnb", "非必需消費/其他"), ("LULU", "Lululemon", "非必需消費/其他"), ("MNST", "Monster Beverage", "非必需消費/其他"),
-    ("KDP", "Keurig Dr Pepper", "非必需消費/其他"), ("ROST", "Ross Stores", "非必需消費/其他"), ("WDAY", "Workday", "半導體/科技"),
-    ("AEP", "American Electric Power", "航運物流/工業"), ("PAYX", "Paychex", "半導體/科技"), ("KHC", "Kraft Heinz", "非必需消費/其他"),
-    ("ODFL", "Old Dominion Freight", "航運物流/工業"), ("IDXX", "Idexx Laboratories", "非必需消費/其他"), ("EXC", "Exelon", "航運物流/工業"),
-    ("EA", "Electronic Arts", "半導體/科技"), ("CTSH", "Cognizant", "半導體/科技"), ("MCHP", "Microchip Technology", "半導體/科技"),
-    ("CPRT", "Copart", "航運物流/工業"), ("XEL", "Xcel Energy", "航運物流/工業"), ("FAST", "Fastenal", "航運物流/工業"),
-    ("VRSK", "Verisk", "航運物流/工業"), ("BKR", "Baker Hughes", "航運物流/工業"), ("CSGP", "CoStar Group", "金融保險"),
-    ("GEHC", "GE HealthCare", "非必需消費/其他"), ("ON", "ON Semiconductor", "半導體/科技"), ("ANSS", "Ansys", "半導體/科技"),
-    ("BIIB", "Biogen", "非必需消費/其他"), ("DLTR", "Dollar Tree", "非必需消費/其他"), ("DXCM", "DexCom", "半導體/科技"),
-    ("WBD", "Warner Bros. Discovery", "非必需消費/其他"), ("ILMN", "Illumina", "非必需消費/其他"), ("WBA", "Walgreens Boots Alliance", "非必需消費/其他"),
-    ("ZS", "Zscaler", "半導體/科技"), ("CRWD", "CrowdStrike", "半導體/科技"), ("TEAM", "Atlassian", "半導體/科技"),
-    ("DDOG", "Datadog", "半導體/科技"), ("CEG", "Constellation Energy", "航運物流/工業"), ("FANG", "Diamondback Energy", "航運物流/工業"),
-    ("TTD", "The Trade Desk", "半導體/科技"), ("ARM", "Arm Holdings", "半導體/科技"), ("Dash", "DoorDash", "非必需消費/其他"),
-    ("MDB", "MongoDB", "半導體/科技"), ("ROKU", "Roku", "半導體/科技"), ("TTWO", "Take-Two", "半導體/科技"),
-    ("GFV", "GlobalFoundries", "半導體/科技"), ("SMCI", "Super Micro Computer", "半導體/科技")
+    ("AAPL", "Apple", "半導體/科技"),
+    ("MSFT", "Microsoft", "半導體/科技"),
+    ("NVDA", "NVIDIA", "半導體/科技"),
+    ("AMZN", "Amazon", "非必需消費/其他"),
+    ("GOOG", "Alphabet C", "半導體/科技"),
+    ("GOOGL", "Alphabet A", "半導體/科技"),
+    ("META", "Meta", "半導體/科技"),
+    ("TSLA", "Tesla", "非必需消費/其他"),
+    ("AVGO", "Broadcom", "半導體/科技"),
+    ("COST", "Costco", "非必需消費/其他"),
+    ("PEP", "PepsiCo", "非必需消費/其他"),
+    ("CSCO", "Cisco", "半導體/科技"),
+    ("TMUS", "T-Mobile", "半導體/科技"),
+    ("ADBE", "Adobe", "半導體/科技"),
+    ("AMD", "AMD", "半導體/科技"),
+    ("NFLX", "Netflix", "非必需消費/其他"),
+    ("TXN", "Texas Instruments", "半導體/科技"),
+    ("QCOM", "Qualcomm", "半導體/科技"),
+    ("INTC", "Intel", "半導體/科技"),
+    ("AMAT", "Applied Materials", "半導體/科技"),
+    ("CMCSA", "Comcast", "非必需消費/其他"),
+    ("HON", "Honeywell", "航運物流/工業"),
+    ("INTU", "Intuit", "半導體/科技"),
+    ("BKNG", "Booking Holdings", "非必需消費/其他"),
+    ("AMGN", "Amgen", "非必需消費/其他"),
+    ("SBUX", "Starbucks", "非必需消費/其他"),
+    ("GILD", "Gilead Sciences", "非必需消費/其他"),
+    ("MDLZ", "Mondelez", "非必需消費/其他"),
+    ("ADI", "Analog Devices", "半導體/科技"),
+    ("ADP", "ADP", "半導體/科技"),
+    ("LRCX", "Lam Research", "半導體/科技"),
+    ("ISRG", "Intuitive Surgical", "非必需消費/其他"),
+    ("REGN", "Regeneron", "非必需消費/其他"),
+    ("VRTX", "Vertex", "半導體/科技"),
+    ("FISV", "Fiserv", "半導體/科技"),
+    ("MU", "Micron", "半導體/科技"),
+    ("KLAC", "KLA Corporation", "半導體/科技"),
+    ("PANW", "Palo Alto Networks", "半導體/科技"),
+    ("SNPS", "Synopsys", "半導體/科技"),
+    ("CDNS", "Cadence", "半導體/科技"),
+    ("MELI", "MercadoLibre", "非必需消費/其他"),
+    ("PYPL", "PayPal", "金融保險"),
+    ("CSX", "CSX Corporation", "航運物流/工業"),
+    ("MAR", "Marriott", "非必需消費/其他"),
+    ("ORLY", "O'Reilly Auto Parts", "非必需消費/其他"),
+    ("ASML", "ASML Holding", "半導體/科技"),
+    ("CTAS", "Cintas", "航運物流/工業"),
+    ("NXPI", "NXP Semiconductors", "半導體/科技"),
+    ("FTNT", "Fortinet", "半導體/科技"),
+    ("MRVL", "Marvell Technology", "半導體/科技"),
+    ("ADSK", "Autodesk", "半導體/科技"),
+    ("ABNB", "Airbnb", "非必需消費/其他"),
+    ("LULU", "Lululemon", "非必需消費/其他"),
+    ("MNST", "Monster Beverage", "非必需消費/其他"),
+    ("KDP", "Keurig Dr Pepper", "非必需消費/其他"),
+    ("ROST", "Ross Stores", "非必需消費/其他"),
+    ("WDAY", "Workday", "半導體/科技"),
+    ("AEP", "American Electric Power", "航運物流/工業"),
+    ("PAYX", "Paychex", "半導體/科技"),
+    ("KHC", "Kraft Heinz", "非必需消費/其他"),
+    ("ODFL", "Old Dominion Freight", "航運物流/工業"),
+    ("IDXX", "Idexx Laboratories", "非必需消費/其他"),
+    ("EXC", "Exelon", "航運物流/工業"),
+    ("EA", "Electronic Arts", "半導體/科技"),
+    ("CTSH", "Cognizant", "半導體/科技"),
+    ("MCHP", "Microchip Technology", "半導體/科技"),
+    ("CPRT", "Copart", "航運物流/工業"),
+    ("XEL", "Xcel Energy", "航運物流/工業"),
+    ("FAST", "Fastenal", "航運物流/工業"),
+    ("VRSK", "Verisk", "航運物流/工業"),
+    ("BKR", "Baker Hughes", "航運物流/工業"),
+    ("CSGP", "CoStar Group", "金融保險"),
+    ("GEHC", "GE HealthCare", "非必需消費/其他"),
+    ("ON", "ON Semiconductor", "半導體/科技"),
+    ("ANSS", "Ansys", "半導體/科技"),
+    ("BIIB", "Biogen", "非必需消費/其他"),
+    ("DLTR", "Dollar Tree", "非必需消費/其他"),
+    ("DXCM", "DexCom", "非必需消費/其他"),
+    ("WBD", "Warner Bros. Discovery", "非必需消費/其他"),
+    ("ILMN", "Illumina", "非必需消費/其他"),
+    ("WBA", "Walgreens Boots Alliance", "非必需消費/其他"),
+    ("ZS", "Zscaler", "半導體/科技"),
+    ("CRWD", "CrowdStrike", "半導體/科技"),
+    ("TEAM", "Atlassian", "半導體/科技"),
+    ("DDOG", "Datadog", "半導體/科技"),
+    ("CEG", "Constellation Energy", "航運物流/工業"),
+    ("FANG", "Diamondback Energy", "航運物流/工業"),
+    ("TTD", "The Trade Desk", "半導體/科技"),
+    ("ARM", "Arm Holdings", "半導體/科技"),
+    ("Dash", "DoorDash", "非必需消費/其他"),
+    ("MDB", "MongoDB", "半導體/科技"),
+    ("ROKU", "Roku", "半導體/科技"),
+    ("TTWO", "Take-Two", "半導體/科技"),
+    ("GFV", "GlobalFoundries", "半導體/科技"),
+    ("SMCI", "Super Micro Computer", "半導體/科技"),
 ]
 
 SP100_LIST = [
-    ("AAPL", "Apple", "半導體/科技"), ("MSFT", "Microsoft", "半導體/科技"), ("NVDA", "NVIDIA", "半導體/科技"),
-    ("AMZN", "Amazon", "非必需消費/其他"), ("GOOG", "Alphabet C", "半導體/科技"), ("GOOGL", "Alphabet A", "半導體/科技"),
-    ("META", "Meta", "半導體/科技"), ("TSLA", "Tesla", "非必需消費/其他"), ("BRK-B", "Berkshire Hathaway", "金融保險"),
-    ("JPM", "JPMorgan Chase", "金融保險"), ("LLY", "Eli Lilly", "非必需消費/其他"), ("UNH", "UnitedHealth", "非必需消費/其他"),
-    ("V", "Visa", "金融保險"), ("XOM", "ExxonMobil", "航運物流/工業"), ("JNJ", "Johnson & Johnson", "非必需消費/其他"),
-    ("WMT", "Walmart", "非必需消費/其他"), ("MA", "Mastercard", "金融保險"), ("PG", "Procter & Gamble", "非必需消費/其他"),
-    ("HD", "Home Depot", "非必需消費/其他"), ("AVGO", "Broadcom", "半導體/科技"), ("CVX", "Chevron", "航運物流/工業"),
-    ("MRK", "Merck", "非必需消費/其他"), ("ABBV", "AbbVie", "非必需消費/其他"), ("COST", "Costco", "非必需消費/其他"),
-    ("ORCL", "Oracle", "半導體/科技"), ("KO", "Coca-Cola", "非必需消費/其他"), ("BAC", "Bank of America", "金融保險"),
-    ("PEP", "PepsiCo", "非必需消費/其他"), ("CRM", "Salesforce", "半導體/科技"), ("TMO", "Thermo Fisher", "非必需消費/其他"),
-    ("CSCO", "Cisco", "半導體/科技"), ("MCD", "McDonald's", "非必需消費/其他"), ("ACN", "Accenture", "半導體/科技"),
-    ("ABT", "Abbott Laboratories", "非必需消費/其他"), ("LIN", "Linde", "航運物流/工業"), ("NFLX", "Netflix", "非必需消費/其他"),
-    ("DHR", "Danaher", "非必需消費/其他"), ("AMD", "AMD", "半導體/科技"), ("DIS", "Walt Disney", "非必需消費/其他"),
-    ("PM", "Philip Morris", "非必需消費/其他"), ("TXN", "Texas Instruments", "半導體/科技"), ("INTC", "Intel", "半導體/科技"),
-    ("WFC", "Wells Fargo", "金融保險"), ("VZ", "Verizon", "半導體/科技"), ("QCOM", "Qualcomm", "半導體/科技"),
-    ("COP", "ConocoPhillips", "航運物流/工業"), ("AMGN", "Amgen", "非必需消費/其他"), ("IBM", "IBM", "半導體/科技"),
-    ("UNP", "Union Pacific", "航運物流/工業"), ("LOW", "Lowe's", "非必需消費/其他"), ("SPGI", "S&P Global", "金融保險"),
-    ("CAT", "Caterpillar", "航運物流/工業"), ("GE", "General Electric", "航運物流/工業"), ("HON", "Honeywell", "航運物流/工業"),
-    ("INTU", "Intuit", "半導體/科技"), ("BA", "Boeing", "航運物流/工業"), ("RTX", "RTX Corporation", "航運物流/工業"),
-    ("AMAT", "Applied Materials", "半導體/科技"), ("PFE", "Pfizer", "非必需消費/其他"), ("GS", "Goldman Sachs", "金融保險"),
-    ("BLK", "BlackRock", "金融保險"), ("BKNG", "Booking Holdings", "非必需消費/其他"), ("ECL", "Ecolab", "航運物流/工業"),
-    ("ISRG", "Intuitive Surgical", "非必需消費/其他"), ("MS", "Morgan Stanley", "金融保險"), ("NOW", "ServiceNow", "半導體/科技"),
-    ("SBUX", "Starbucks", "非必需消費/其他"), ("T", "AT&T", "半導體/科技"), ("ELV", "Elevance Health", "非必需消費/其他"),
-    ("DE", "John Deere", "航運物流/工業"), ("UPS", "United Parcel Service", "航運物流/工業"), ("PGR", "Progressive", "金融保險"),
-    ("LRCX", "Lam Research", "半導體/科技"), ("C", "Citigroup", "金融保險"), ("GILD", "Gilead Sciences", "非必需消費/其他"),
-    ("MDLZ", "Mondelez", "非必需消費/其他"), ("LMT", "Lockheed Martin", "航運物流/工業"), ("SCHW", "Charles Schwab", "金融保險"),
-    ("ADI", "Analog Devices", "半導體/科技"), ("TJX", "TJX Companies", "非必需消費/其他"), ("ADP", "ADP", "半導體/科技"),
-    ("PLD", "Prologis", "金融保險"), ("MMC", "Marsh & McLennan", "金融保險"), ("CB", "Chubb", "金融保險"),
-    ("AMT", "American Tower", "金融保險"), ("CI", "Cigna", "非必需消費/其他"), ("FI", "Fiserv", "半導體/科技"),
-    ("BMY", "Bristol Myers Squibb", "非必需消費/其他"), ("MO", "Altria", "非必需消費/其他"), ("SO", "Southern Company", "航運物流/工業"),
-    ("DUK", "Duke Energy", "航運物流/工業"), ("ZTS", "Zoetis", "非必需消費/其他"), ("SHW", "Sherwin-Williams", "航運物流/工業"),
-    ("REGN", "Regeneron", "非必需消費/其他"), ("TGT", "Target", "非必需消費/其他"), ("ITW", "Illinois Tool Works", "航運物流/工業"),
-    ("CVS", "CVS Health", "非必需消費/其他")
+    ("AAPL", "Apple", "半導體/科技"),
+    ("MSFT", "Microsoft", "半導體/科技"),
+    ("NVDA", "NVIDIA", "半導體/科技"),
+    ("AMZN", "Amazon", "非必需消費/其他"),
+    ("GOOG", "Alphabet C", "半導體/科技"),
+    ("GOOGL", "Alphabet A", "半導體/科技"),
+    ("META", "Meta", "半導體/科技"),
+    ("TSLA", "Tesla", "非必需消費/其他"),
+    ("BRK-B", "Berkshire Hathaway", "金融保險"),
+    ("JPM", "JPMorgan Chase", "金融保險"),
+    ("LLY", "Eli Lilly", "非必需消費/其他"),
+    ("UNH", "UnitedHealth", "非必需消費/其他"),
+    ("V", "Visa", "金融保險"),
+    ("XOM", "ExxonMobil", "航運物流/工業"),
+    ("JNJ", "Johnson & Johnson", "非必需消費/其他"),
+    ("WMT", "Walmart", "非必需消費/其他"),
+    ("MA", "Mastercard", "金融保險"),
+    ("PG", "Procter & Gamble", "非必需消費/其他"),
+    ("HD", "Home Depot", "非必需消費/其他"),
+    ("AVGO", "Broadcom", "半導體/科技"),
+    ("CVX", "Chevron", "航運物流/工業"),
+    ("MRK", "Merck", "非必需消費/其他"),
+    ("ABBV", "AbbVie", "非必需消費/其他"),
+    ("COST", "Costco", "非必需消費/其他"),
+    ("ORCL", "Oracle", "半導體/科技"),
+    ("KO", "Coca-Cola", "非必需消費/其他"),
+    ("BAC", "Bank of America", "金融保險"),
+    ("PEP", "PepsiCo", "非必需消費/其他"),
+    ("CRM", "Salesforce", "半導體/科技"),
+    ("TMO", "Thermo Fisher", "非必需消費/其他"),
+    ("CSCO", "Cisco", "半導體/科技"),
+    ("MCD", "McDonald's", "非必需消費/其他"),
+    ("ACN", "Accenture", "半導體/科技"),
+    ("ABT", "Abbott Laboratories", "非必需消費/其他"),
+    ("LIN", "Linde", "航運物流/工業"),
+    ("NFLX", "Netflix", "非必需消費/其他"),
+    ("DHR", "Danaher", "非必需消費/其他"),
+    ("AMD", "AMD", "半導體/科技"),
+    ("DIS", "Walt Disney", "非必需消費/其他"),
+    ("PM", "Philip Morris", "非必需消費/其他"),
+    ("TXN", "Texas Instruments", "半導體/科技"),
+    ("INTC", "Intel", "半導體/科技"),
+    ("WFC", "Wells Fargo", "金融保險"),
+    ("VZ", "Verizon", "半導體/科技"),
+    ("QCOM", "Qualcomm", "半導體/科技"),
+    ("COP", "ConocoPhillips", "航運物流/工業"),
+    ("AMGN", "Amgen", "非必需消費/其他"),
+    ("IBM", "IBM", "半導體/科技"),
+    ("UNP", "Union Pacific", "航運物流/工業"),
+    ("LOW", "Lowe's", "非必需消費/其他"),
+    ("SPGI", "S&P Global", "金融保險"),
+    ("CAT", "Caterpillar", "航運物流/工業"),
+    ("GE", "General Electric", "航運物流/工業"),
+    ("HON", "Honeywell", "航運物流/工業"),
+    ("INTU", "Intuit", "半導體/科技"),
+    ("BA", "Boeing", "航運物流/工業"),
+    ("RTX", "RTX Corporation", "航運物流/工業"),
+    ("AMAT", "Applied Materials", "半導體/科技"),
+    ("PFE", "Pfizer", "非必需消費/其他"),
+    ("GS", "Goldman Sachs", "金融保險"),
+    ("BLK", "BlackRock", "金融保險"),
+    ("BKNG", "Booking Holdings", "非必需消費/其他"),
+    ("ECL", "Ecolab", "航運物流/工業"),
+    ("ISRG", "Intuitive Surgical", "非必需消費/其他"),
+    ("MS", "Morgan Stanley", "金融保險"),
+    ("NOW", "ServiceNow", "半導體/科技"),
+    ("SBUX", "Starbucks", "非必需消費/其他"),
+    ("T", "AT&T", "半導體/科技"),
+    ("ELV", "Elevance Health", "非必需消費/其他"),
+    ("DE", "John Deere", "航運物流/工業"),
+    ("UPS", "United Parcel Service", "航運物流/工業"),
+    ("PGR", "Progressive", "金融保險"),
+    ("LRCX", "Lam Research", "半導體/科技"),
+    ("C", "Citigroup", "金融保險"),
+    ("GILD", "Gilead Sciences", "非必需消費/其他"),
+    ("MDLZ", "Mondelez", "非必需消費/其他"),
+    ("LMT", "Lockheed Martin", "航運物流/工業"),
+    ("SCHW", "Charles Schwab", "金融保險"),
+    ("ADI", "Analog Devices", "半導體/科技"),
+    ("TJX", "TJX Companies", "非必需消費/其他"),
+    ("ADP", "ADP", "半導體/科技"),
+    ("PLD", "Prologis", "金融保險"),
+    ("MMC", "Marsh & McLennan", "金融保險"),
+    ("CB", "Chubb", "金融保險"),
+    ("AMT", "American Tower", "金融保險"),
+    ("CI", "Cigna", "非必需消費/其他"),
+    ("FI", "Fiserv", "半導體/科技"),
+    ("BMY", "Bristol Myers Squibb", "非必需消費/其他"),
+    ("MO", "Altria", "非必需消費/其他"),
+    ("SO", "Southern Company", "航運物流/工業"),
+    ("DUK", "Duke Energy", "航運物流/工業"),
+    ("ZTS", "Zoetis", "非必需消費/其他"),
+    ("SHW", "Sherwin-Williams", "航運物流/工業"),
+    ("REGN", "Regeneron", "非必需消費/其他"),
+    ("TGT", "Target", "非必需消費/其他"),
+    ("ITW", "Illinois Tool Works", "航運物流/工業"),
+    ("CVS", "CVS Health", "非必需消費/其他"),
 ]
 
 NAME_TO_SYMBOL = {
-    "元大台灣50": ("0050.TW", "元大台灣50"), "0050": ("0050.TW", "元大台灣50"),
-    "元大高股息": ("0056.TW", "元大高股息"), "0056": ("0056.TW", "元大高股息"),
-    "國泰永續高股息": ("00878.TW", "國泰永續高股息"), "00878": ("00878.TW", "國泰永續高股息"),
-    "復華台灣科技優息": ("00929.TW", "復華台灣科技優息"), "00929": ("00929.TW", "復華台灣科技優息"),
-    "富邦日本正二": ("00640L.TW", "富邦日本正二"), "00640L": ("00640L.TW", "富邦日本正二"),
+    "元大台灣50": ("0050.TW", "元大台灣50"),
+    "0050": ("0050.TW", "元大台灣50"),
+    "元大高股息": ("0056.TW", "元大高股息"),
+    "0056": ("0056.TW", "元大高股息"),
+    "國泰永續高股息": ("00878.TW", "國泰永續高股息"),
+    "00878": ("00878.TW", "國泰永續高股息"),
+    "復華台灣科技優息": ("00929.TW", "復華台灣科技優息"),
+    "00929": ("00929.TW", "復華台灣科技優息"),
+    "富邦日本正二": ("00640L.TW", "富邦日本正二"),
+    "00640L": ("00640L.TW", "富邦日本正二"),
     "寶雅": ("5904.TWO", "寶雅"),
-    "蘋果": ("AAPL", "Apple"), "微軟": ("MSFT", "Microsoft"),
-    "輝達": ("NVDA", "NVIDIA"), "特斯拉": ("TSLA", "Tesla"),
-    "亞馬遜": ("AMZN", "Amazon"), "GOOGLE": ("GOOG", "Alphabet C"),
-    "GOOGL": ("GOOGL", "Alphabet A"), "台積電ADR": ("TSM", "TSMC ADR")
+    "蘋果": ("AAPL", "Apple"),
+    "微軟": ("MSFT", "Microsoft"),
+    "輝達": ("NVDA", "NVIDIA"),
+    "特斯拉": ("TSLA", "Tesla"),
+    "亞馬遜": ("AMZN", "Amazon"),
+    "GOOGLE": ("GOOG", "Alphabet C"),
+    "GOOGL": ("GOOGL", "Alphabet A"),
+    "台積電ADR": ("TSM", "TSMC ADR"),
 }
 
 for sym, name, ind in TW_STOCK_LIST + NASDAQ100_LIST + SP100_LIST:
@@ -284,6 +418,7 @@ for sym, name, ind in TW_STOCK_LIST + NASDAQ100_LIST + SP100_LIST:
     short_name = name.replace("-KY", "").replace("*", "")
     if short_name not in NAME_TO_SYMBOL:
         NAME_TO_SYMBOL[short_name] = (sym, name)
+
 
 # ------------------------------------------------------------------
 # 2. 自動爬取最新成分股與快取控制
@@ -296,6 +431,7 @@ def fetch_dynamic_universe(universe_key):
             df = pd.read_html(url)[4]
             tickers = df["Ticker"].tolist()
             return [(t, t, "美股/科技") for t in tickers]
+
         elif universe_key == "sp100":
             url = "https://en.wikipedia.org/wiki/S%26P_100"
             df = pd.read_html(url)[2]
@@ -305,18 +441,29 @@ def fetch_dynamic_universe(universe_key):
         pass
     return None
 
+
 # ------------------------------------------------------------------
 # 3. 側邊欄與選單控制
 # ------------------------------------------------------------------
 with st.sidebar:
     st.header("⚙️ 篩選選項")
+
     stock_group = st.radio(
         "1. 請選擇核心母體：",
-        ["台股 - 0050 + 0051", "美股 - 納斯達克 100", "美股 - S&P 100", "⭐ 自選股票清單"]
+        [
+            "台股 - 0050 + 0051",
+            "美股 - 納斯達克 100",
+            "美股 - S&P 100",
+            "⭐ 自選股票清單",
+        ],
     )
-    
+
     st.caption("💡 建議重整時機：每季末 (3/15, 6/15, 9/15, 12/15)")
-    if st.button("🔄 重整指數成分股快取", help="點擊後將清除快取，下次搜尋時會自動抓取最新的指數成分股名單。", use_container_width=True):
+    if st.button(
+        "🔄 重整指數成分股快取",
+        help="點擊後將清除快取，下次搜尋時會自動抓取最新的指數成分股名單。",
+        use_container_width=True,
+    ):
         st.cache_data.clear()
         st.success("快取已清除！")
 
@@ -325,8 +472,9 @@ with st.sidebar:
         st.markdown("---")
         user_symbols_text = st.text_area(
             "請輸入股票代號或名稱 (用逗號或換行)：",
-            value="台達電,國巨,漢唐,寶雅,goog,富邦日本正二"
+            value="台達電,國巨,漢唐,寶雅,goog,富邦日本正二",
         )
+
         cleaned_text = (
             user_symbols_text.replace("，", ",")
             .replace("。", ",")
@@ -334,9 +482,17 @@ with st.sidebar:
             .replace(" ", ",")
             .replace("\n", ",")
         )
-        cleaned_text = re.sub(r"(?<=[\u4e00-\u9fa5a-zA-Z0-9])\.(?=[\u4e00-\u9fa5])", ",", cleaned_text)
-        raw_inputs = [item.strip() for item in cleaned_text.split(",") if item.strip()]
-        
+
+        cleaned_text = re.sub(
+            r"(?<=[\u4e00-\u9fa5a-zA-Z0-9])\.(?=[\u4e00-\u9fa5])",
+            ",",
+            cleaned_text,
+        )
+
+        raw_inputs = [
+            item.strip() for item in cleaned_text.split(",") if item.strip()
+        ]
+
         for item in raw_inputs:
             item_upper = item.upper()
             if item in NAME_TO_SYMBOL:
@@ -348,27 +504,48 @@ with st.sidebar:
             elif item.isdigit():
                 custom_input_tickers.append((f"{item}.TW", item, "自選股票"))
             else:
-                custom_input_tickers.append((item_upper, item_upper, "自選股票"))
+                custom_input_tickers.append(
+                    (item_upper, item_upper, "自選股票")
+                )
 
     industry_filter = st.selectbox(
         "2. 細分產業類別：",
-        ["全部產業 (不限)", "半導體/科技", "電子零組件/電腦週邊", "金融保險", "航運物流/工業", "非必需消費/其他", "自選股票"]
+        [
+            "全部產業 (不限)",
+            "半導體/科技",
+            "電子零組件/電腦週邊",
+            "金融保險",
+            "航運物流/工業",
+            "非必需消費/其他",
+            "自選股票",
+        ],
     )
-    
+
     quadrant_filter = st.selectbox(
         "3. 象限選單：",
-        ["全部區間", "第一象限 (>= 中線*1.05)", "第四象限 (<= 中線*0.95)", "中線區間 (0.95~1.05之間)"]
+        [
+            "全部區間",
+            "第一象限 (>= 中線*1.05)",
+            "第四象限 (<= 中線*0.95)",
+            "中線區間 (0.95~1.05之間)",
+        ],
     )
-    
-    limit_lower_shadow = st.checkbox("📌 限制最新一日為下影線 (含實體與十字下影線)", value=False)
-    
+
+    limit_lower_shadow = st.checkbox(
+        "📌 限制最新一日為下影線 (含實體與十字下影線)", value=False
+    )
+
     st.markdown("---")
-    start_test = st.button("🚀 開始選股", type="primary", use_container_width=True)
+    start_test = st.button(
+        "🚀 開始選股", type="primary", use_container_width=True
+    )
+
 
 # ------------------------------------------------------------------
-# 4. 主畫面呈現 (右側主區域)
+# 4. 主畫面數據處理與繪圖函式
 # ------------------------------------------------------------------
 st.title("⚡ 台美選股器 (EY版)")
+
 
 @st.cache_data(ttl=3600)
 def fetch_stock_data(symbol):
@@ -380,9 +557,11 @@ def fetch_stock_data(symbol):
                 df = yf.download(alt_symbol, period="1y", progress=False)
                 if df is not None and not df.empty:
                     return df, alt_symbol
+            return None, symbol
         return df, symbol
     except Exception:
         return None, symbol
+
 
 def generate_tv_symbol(symbol: str) -> str:
     if symbol.endswith(".TW"):
@@ -391,83 +570,303 @@ def generate_tv_symbol(symbol: str) -> str:
         return f"TPEX:{symbol.replace('.TWO', '')}"
     return symbol
 
-def extract_val(val):
-    if hasattr(val, "values"):
-        val = val.values
-    if isinstance(val, (list, tuple)):
-        val = val[0] if len(val) > 0 else 0
-    try:
-        return float(val)
-    except Exception:
-        return 0.0
 
-# 取得母體清單
-if stock_group == "台股 - 0050 + 0051":
-    current_universe = TW_STOCK_LIST
-elif stock_group == "美股 - 納斯達克 100":
-    dyn = fetch_dynamic_universe("nasdaq100")
-    current_universe = dyn if dyn else NASDAQ100_LIST
-elif stock_group == "美股 - S&P 100":
-    dyn = fetch_dynamic_universe("sp100")
-    current_universe = dyn if dyn else SP100_LIST
-else:
-    current_universe = custom_input_tickers
-
-if start_test:
-    if not current_universe:
-        st.warning("目前清單中沒有股票，請確認您的輸入或選擇。")
+def extract_single_value(series_or_df):
+    """確保精準取出單一純量浮點數，解決 yfinance MultiIndex 問題"""
+    if isinstance(series_or_df, pd.DataFrame):
+        val = series_or_df.iloc[:, 0].values[0]
+    elif isinstance(series_or_df, pd.Series):
+        val = series_or_df.values[0]
     else:
-        results = []
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        total_stocks = len(current_universe)
-        
-        for idx, (sym, name, ind) in enumerate(current_universe):
-            status_text.text(f"正在分析 ({idx+1}/{total_stocks}): {name} ({sym})...")
-            progress_bar.progress((idx + 1) / total_stocks)
-            
-            df, final_sym = fetch_stock_data(sym)
-            if df is None or df.empty or len(df) < 20:
-                continue
-                
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = df.columns.get_level_values(0)
-                
-            try:
-                close = df["Close"]
-                high = df["High"]
-                low = df["Low"]
-                open_p = df["Open"]
-                
-                c_val = extract_val(close.iloc[-1])
-                h_val = extract_val(high.iloc[-1])
-                l_val = extract_val(low.iloc[-1])
-                o_val = extract_val(open_p.iloc[-1])
-                
-                if limit_lower_shadow:
-                    body_bottom = min(o_val, c_val)
-                    lower_shadow = body_bottom - l_val
-                    total_range = h_val - l_val
-                    if total_range > 0 and (lower_shadow / total_range) < 0.3:
-                        continue
-                        
-                results.append({
-                    "代號": final_sym,
-                    "名稱": name,
-                    "產業": ind,
-                    "最新收盤": c_val
-                })
-            except Exception:
-                continue
-                
-        progress_bar.empty()
-        status_text.empty()
-        
-        if results:
-            res_df = pd.DataFrame(results)
-            st.success(f"選股完成！共篩選出 {len(res_df)} 檔符合條件的股票。")
-            st.dataframe(res_df, use_container_width=True)
+        val = series_or_df
+    return float(val)
+
+
+def check_lower_shadow(latest_row) -> bool:
+    high = extract_single_value(latest_row["High"])
+    low = extract_single_value(latest_row["Low"])
+    open_p = extract_single_value(latest_row["Open"])
+    close_p = extract_single_value(latest_row["Close"])
+
+    total_range = high - low
+    if total_range == 0:
+        return False
+
+    body_bottom = min(open_p, close_p)
+    lower_shadow = body_bottom - low
+    return (lower_shadow / total_range) >= 0.3
+
+
+def process_stock(symbol, name, ind, df):
+    # 1. 攤平 yfinance MultiIndex 欄位結構
+    if isinstance(df.columns, pd.MultiIndex):
+        try:
+            df = df.xs(symbol, axis=1, level=1, drop_level=True)
+        except Exception:
+            df.columns = df.columns.get_level_values(0)
+
+    df_clean = df.dropna()
+    if len(df_clean) < 5:
+        return None
+
+    # 2. 自動以「執行當天 (Today)」為基準，動態回推 365 天
+    today = datetime.date.today()
+    one_year_ago = today - datetime.timedelta(days=365)
+
+    # 3. 切割近一年 K 線資料 (未滿一年自動採計上市首日起算)
+    df_clean_date = df_clean.copy()
+    df_target = df_clean_date[df_clean_date.index.date >= one_year_ago]
+
+    if len(df_target) == 0:
+        df_target = df_clean
+
+    # 4. 精確提取起點價 (P_past) 與終點價 (P_latest)
+    past_close = extract_single_value(df_target["Close"].iloc[0])
+    latest_close = extract_single_value(df_target["Close"].iloc[-1])
+
+    # 5. 計算象限歸屬 (標準維持不變：漲幅 >= 10.53% 歸為第一象限；跌幅 >= 9.52% 歸為第四象限)
+    price_change_ratio = (latest_close - past_close) / past_close
+
+    if price_change_ratio >= 0.10526:
+        quadrant = "第一象限"
+    elif price_change_ratio <= -0.09524:
+        quadrant = "第四象限"
+    else:
+        quadrant = "中線區間"
+
+    latest_row = df_target.iloc[-1]
+    is_has_lower_shadow = check_lower_shadow(latest_row)
+    tv_symbol = generate_tv_symbol(symbol)
+
+    market_type = (
+        "台股" if (".TW" in symbol or ".TWO" in symbol) else "美股/ETF"
+    )
+
+    return {
+        "symbol": symbol,
+        "name": name,
+        "industry": ind,
+        "market": market_type,
+        "latest_close": round(latest_close, 2),
+        "quadrant": quadrant,
+        "is_lower_shadow": is_has_lower_shadow,
+        "tv_symbol": tv_symbol,
+        "superchart_url": f"https://www.tradingview.com/chart/?symbol={tv_symbol}",
+        "df_raw": df_target,
+    }
+
+
+def render_plotly_chart(stock_name: str, df: pd.DataFrame, chart_key: str):
+    open_vals = (
+        df["Open"].values.flatten()
+        if hasattr(df["Open"], "values")
+        else df["Open"]
+    )
+    high_vals = (
+        df["High"].values.flatten()
+        if hasattr(df["High"], "values")
+        else df["High"]
+    )
+    low_vals = (
+        df["Low"].values.flatten() if hasattr(df["Low"], "values") else df["Low"]
+    )
+    close_vals = (
+        df["Close"].values.flatten()
+        if hasattr(df["Close"], "values")
+        else df["Close"]
+    )
+
+    fig = go.Figure(
+        data=[
+            go.Candlestick(
+                x=df.index,
+                open=open_vals,
+                high=high_vals,
+                low=low_vals,
+                close=close_vals,
+                name="K線",
+            )
+        ]
+    )
+    fig.update_layout(
+        title=f"{stock_name} K線圖",
+        xaxis_title="日期",
+        yaxis_title="價格",
+        xaxis_rangeslider_visible=False,
+        height=520,
+        margin=dict(l=20, r=20, t=40, b=20),
+    )
+    st.plotly_chart(fig, use_container_width=True, key=chart_key)
+
+
+def sync_table_selection():
+    table_state = st.session_state.get("stock_table", {})
+    selected_rows = table_state.get("selection", {}).get("rows", [])
+    if selected_rows:
+        st.session_state["chart_index"] = selected_rows[0]
+
+
+# ------------------------------------------------------------------
+# 5. 執行與左右並排繪製邏輯
+# ------------------------------------------------------------------
+if start_test or "results" in st.session_state:
+    if start_test:
+        if stock_group == "台股 - 0050 + 0051":
+            target_tuples = TW_STOCK_LIST
+        elif stock_group == "美股 - 納斯達克 100":
+            dynamic_list = fetch_dynamic_universe("nasdaq100")
+            target_tuples = (
+                dynamic_list if dynamic_list is not None else NASDAQ100_LIST
+            )
+        elif stock_group == "美股 - S&P 100":
+            dynamic_list = fetch_dynamic_universe("sp100")
+            target_tuples = (
+                dynamic_list if dynamic_list is not None else SP100_LIST
+            )
         else:
-            st.warning("沒有找到符合條件的股票，請放寬篩選條件後重試。")
+            target_tuples = custom_input_tickers
+
+        success_results = []
+        progress_bar = st.progress(0, text="正在運算中，請稍候...")
+
+        for idx, (sym, name, ind) in enumerate(target_tuples):
+            if (
+                industry_filter != "全部產業 (不限)"
+                and ind != industry_filter
+                and ind != "自選股票"
+            ):
+                continue
+
+            df_stock, final_symbol = fetch_stock_data(sym)
+            if df_stock is None or df_stock.empty:
+                continue
+
+            res = process_stock(final_symbol, name, ind, df_stock)
+            if res is None:
+                continue
+
+            if quadrant_filter != "全部區間":
+                target_q = quadrant_filter.split(" ")[0]
+                if target_q not in res["quadrant"]:
+                    continue
+
+            if limit_lower_shadow and not res["is_lower_shadow"]:
+                continue
+
+            success_results.append(res)
+
+            progress_bar.progress(
+                (idx + 1) / len(target_tuples),
+                text=f"正在分析... ({idx+1}/{len(target_tuples)})",
+            )
+
+        progress_bar.empty()
+        st.session_state["results"] = success_results
+        st.session_state["chart_index"] = 0
+        st.session_state["stock_table"] = {
+            "selection": {"rows": [0], "columns": []}
+        }
+
+    results = st.session_state.get("results", [])
+    st.success(f"🎉 分析完成！共篩選出 **{len(results)}** 檔符合條件標的：")
+
+    if results:
+        res_df = pd.DataFrame(results)
+        display_df = pd.DataFrame({
+            "市場": res_df["market"],
+            "代號": res_df["symbol"],
+            "名稱": res_df["name"],
+            "細分產業": res_df["industry"],
+            "最新收盤": res_df["latest_close"],
+            "歸屬象限": res_df["quadrant"],
+            "下影線特徵": res_df["is_lower_shadow"].map(
+                {True: "✅ 有", False: "❌ 無"}
+            ),
+        })
+
+        total_results = len(results)
+
+        if "chart_index" not in st.session_state:
+            st.session_state["chart_index"] = 0
+
+        if st.session_state["chart_index"] >= total_results:
+            st.session_state["chart_index"] = 0
+        if st.session_state["chart_index"] < 0:
+            st.session_state["chart_index"] = total_results - 1
+
+        current_idx = st.session_state["chart_index"]
+
+        left_col, right_col = st.columns([1, 1], gap="medium")
+
+        # 左側：互動圖表預覽 & 操作按鈕
+        with left_col:
+            st.subheader("🔍 互動圖表預覽")
+
+            selected_stock = results[st.session_state["chart_index"]]
+
+            btn_col1, btn_col2, btn_col3 = st.columns([1, 1, 1.5])
+
+            with btn_col1:
+                if st.button("⬅️ 上一檔", use_container_width=True, key="prev_btn"):
+                    new_idx = (current_idx - 1) % total_results
+                    st.session_state["chart_index"] = new_idx
+                    st.session_state["stock_table"] = {
+                        "selection": {"rows": [new_idx], "columns": []}
+                    }
+                    st.rerun()
+
+            with btn_col2:
+                if st.button("下一檔 ➡️", use_container_width=True, key="next_btn"):
+                    new_idx = (current_idx + 1) % total_results
+                    st.session_state["chart_index"] = new_idx
+                    st.session_state["stock_table"] = {
+                        "selection": {"rows": [new_idx], "columns": []}
+                    }
+                    st.rerun()
+
+            with btn_col3:
+                st.link_button(
+                    "🚀 開啟 TradingView 圖表",
+                    selected_stock["superchart_url"],
+                    type="primary",
+                    use_container_width=True,
+                )
+
+            render_plotly_chart(
+                f"{selected_stock['symbol']} {selected_stock['name']}",
+                selected_stock["df_raw"],
+                chart_key=f"chart_{selected_stock['symbol']}_{st.session_state['chart_index']}",
+            )
+
+        # 右側：符合條件的選股結果列表
+        with right_col:
+            st.subheader("📋 符合條件的選股結果列表")
+            st.dataframe(
+                display_df,
+                hide_index=True,
+                use_container_width=True,
+                height=580,
+                on_select=sync_table_selection,
+                selection_mode="single-row",
+                key="stock_table",
+            )
+
+    else:
+        st.warning("⚠️ 沒有找到符合篩選條件的股票，請嘗試放寬篩選條件。")
+
 else:
-    st.info("👈 請在左側設定好篩選選項後，點擊「開始選股」按鈕！")
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.info(
+        "👈 請在左側側邊欄設定好「核心母體」、「產業」與「條件」後，點擊 **🚀 開始選股**"
+    )
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown("### 📊 多維度母體")
+        st.write("支援台股 0050/0051、美股標普 100、納斯達克 100 及自選股。")
+    with col2:
+        st.markdown("### 📈 象限分析")
+        st.write("自動計算中線與強弱區間，精準定位潛力標的。")
+    with col3:
+        st.markdown("### ⚡ 高效互動")
+        st.write("結合 Plotly 互動圖表與 TradingView 快速外連。")
