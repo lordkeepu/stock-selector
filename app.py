@@ -11,7 +11,16 @@ import yfinance as yf
 st.set_page_config(
     page_title="台美選股器 (EY版)", page_icon="⚡", layout="wide"
 )
+# 手機不用存圖，只要提供網路上的 PNG 圖片網址即可
+CUSTOM_ICON_URL = "https://cdn-icons-png.flaticon.com/512/2422/2422771.png"
 
+st.markdown(
+    f"""
+    <link rel="apple-touch-icon" href="{CUSTOM_ICON_URL}">
+    <link rel="shortcut icon" href="{CUSTOM_ICON_URL}">
+    """,
+    unsafe_allow_html=True
+)
 st.markdown(
     """
     <style>
